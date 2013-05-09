@@ -1,5 +1,3 @@
-// myIDirect3D9.cpp
-
 #include "StdAfx.h"
 
 myIDirect3D9::myIDirect3D9(IDirect3D9 *pOriginal)

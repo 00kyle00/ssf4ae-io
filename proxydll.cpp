@@ -4,10 +4,11 @@
 
 // global variables
 #pragma data_seg (".d3d9_shared")
-myIDirect3DDevice9* gl_pmyIDirect3DDevice9;
-myIDirect3D9*       gl_pmyIDirect3D9;
-HINSTANCE           gl_hOriginalDll;
-HINSTANCE           gl_hThisInstance;
+myIDirect3DSwapChain9*  gl_pmyIDirect3DSwapChain9;
+myIDirect3DDevice9*		gl_pmyIDirect3DDevice9;
+myIDirect3D9*			gl_pmyIDirect3D9;
+HINSTANCE				gl_hOriginalDll;
+HINSTANCE				gl_hThisInstance;
 #pragma data_seg ()
 
 BOOL APIENTRY DllMain( HANDLE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
@@ -59,10 +60,11 @@ void InitInstance(HANDLE hModule)
 	OutputDebugString("PROXYDLL: InitInstance called.\r\n");
 	
 	// Initialisation
-	gl_hOriginalDll        = NULL;
-	gl_hThisInstance       = NULL;
-	gl_pmyIDirect3D9       = NULL;
-	gl_pmyIDirect3DDevice9 = NULL;	
+	gl_hOriginalDll				= NULL;
+	gl_hThisInstance			= NULL;
+	gl_pmyIDirect3D9			= NULL;
+	gl_pmyIDirect3DDevice9		= NULL;
+	gl_pmyIDirect3DSwapChain9	= NULL;
 	
 	// Storing Instance handle into global var
 	gl_hThisInstance = (HINSTANCE)  hModule;

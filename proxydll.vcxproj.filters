@@ -26,6 +26,9 @@
     <ClCompile Include="overlay.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="myIDirect3DSwapChain9.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="proxydll.def">
@@ -46,6 +49,9 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="SharedMemory.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="myIDirect3DSwapChain9.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

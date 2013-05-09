@@ -55,7 +55,8 @@ void SetupIcon(int x, int y, int xpos, Vertex* ptr) {
 
 void DrawIcon(IDirect3DDevice9* dev, int x, int y, int pos) {
   void* pVertices = 0;
-  vertexBuffer->Lock(0, sizeof(vertices_org), (void**)&pVertices, D3DLOCK_DISCARD);
+  HRESULT status = vertexBuffer->Lock(0, sizeof(vertices_org), (void**)&pVertices, D3DLOCK_DISCARD);
+  if(status != S_OK) return;
   memcpy(pVertices, vertices_org, sizeof(vertices_org));
   SetupIcon(x, y, pos, (Vertex*)pVertices);
   vertexBuffer->Unlock();
@@ -128,10 +129,10 @@ void HandleDeviceChange(IDirect3DDevice9* dev)
   if(dev != olddev) {
     dev->CreateVertexBuffer(
       sizeof(vertices_org), D3DUSAGE_WRITEONLY, D3DFVF_CUSTOMVERTEX,
-      D3DPOOL_DEFAULT, &vertexBuffer, NULL );
-
-    HMODULE d3dx9 = LoadLibrary("d3dx9_24.dll");
-    auto ctff = (void (__stdcall *)(IDirect3DDevice9*, const char*, IDirect3DTexture9**))
+      D3DPOOL_MANAGED, &vertexBuffer, NULL );
+  
+    static HMODULE d3dx9 = LoadLibrary("d3dx9_24.dll");
+    static auto ctff = (void (__stdcall *)(IDirect3DDevice9*, const char*, IDirect3DTexture9**))
       GetProcAddress(d3dx9, "D3DXCreateTextureFromFileA");
     ctff(dev, "icons.dds", &texture);
 
@@ -168,6 +169,7 @@ void ProcessInput(std::deque<unsigned>& ih)
 void ProcessOverlay(IDirect3DDevice9* dev)
 {
   HandleDeviceChange(dev);
+
   SetupRenderstates(dev);
 
   ProcessInput(input_history);

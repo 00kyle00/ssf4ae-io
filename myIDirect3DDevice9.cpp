@@ -1,5 +1,4 @@
 #include "StdAfx.h"
-#include "myIDirect3DDevice9.h"
 
 myIDirect3DDevice9::myIDirect3DDevice9(IDirect3DDevice9* pOriginal)
 {
@@ -46,9 +45,12 @@ ULONG myIDirect3DDevice9::Release(void)
 	// Calling original function now
 	ULONG count = m_pIDirect3DDevice9->Release();
 		
-    // now, the Original Object has deleted itself, so do we here
-	gl_pmyIDirect3DDevice9 = NULL;
-	delete(this);  // destructor will be called automatically
+    if (count==0)
+	{
+		// now, the Original Object has deleted itself, so do we here
+		gl_pmyIDirect3DDevice9 = NULL;
+		delete(this);  // destructor will be called automatically
+	}
 
 	return (count);
 }
@@ -110,7 +112,30 @@ HRESULT myIDirect3DDevice9::CreateAdditionalSwapChain(D3DPRESENT_PARAMETERS* pPr
 
 HRESULT myIDirect3DDevice9::GetSwapChain(UINT iSwapChain,IDirect3DSwapChain9** pSwapChain)
 {
-    return(m_pIDirect3DDevice9->GetSwapChain(iSwapChain,pSwapChain));
+    // global var
+	extern myIDirect3DSwapChain9*  gl_pmyIDirect3DSwapChain9;
+	
+	// We only cover swapchain 0
+	if (iSwapChain!=0) return(m_pIDirect3DDevice9->GetSwapChain(iSwapChain,pSwapChain));
+	
+	if (gl_pmyIDirect3DSwapChain9)
+	{
+		*pSwapChain = gl_pmyIDirect3DSwapChain9;
+        return(D3D_OK);
+	}
+	
+	// we intercept this call and provide our own "fake" SwapChain Object
+	IDirect3DSwapChain9* pOriginal = NULL;
+	HRESULT hres = m_pIDirect3DDevice9->GetSwapChain(iSwapChain,&pOriginal);
+
+	// Create our own SwapChain object and store it in global pointer
+	// note: the object will delete itself once Ref count is zero (similar to COM objects)
+	gl_pmyIDirect3DSwapChain9 = new myIDirect3DSwapChain9(pOriginal, m_pIDirect3DDevice9);
+	
+	// store our pointer (the fake one) for returning it to the calling progam
+	*pSwapChain = gl_pmyIDirect3DSwapChain9;
+
+	return(hres); 
 }
 
 UINT    myIDirect3DDevice9::GetNumberOfSwapChains(void)
@@ -640,8 +665,9 @@ HRESULT myIDirect3DDevice9::CreateQuery(D3DQUERYTYPE Type,IDirect3DQuery9** ppQu
     return(m_pIDirect3DDevice9->CreateQuery(Type,ppQuery));
 }
 
-void myIDirect3DDevice9::ShowWeAreHere(void)
-{
-  extern void ProcessOverlay(IDirect3DDevice9*);
-  ProcessOverlay(m_pIDirect3DDevice9);
-}
+// This is our test function
+void myIDirect3DDevice9::ShowWeAreHere(void)      
+{                                                 
+  extern void ProcessOverlay(IDirect3DDevice9*);  
+  ProcessOverlay(m_pIDirect3DDevice9);            
+}                                                 
