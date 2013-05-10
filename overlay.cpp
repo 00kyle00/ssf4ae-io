@@ -11,7 +11,8 @@ namespace {
   std::deque<unsigned> input_history(15);
   float aspect_ratio;
   unsigned last_input;
-
+  bool enabled = true;
+  bool left_side = true;
   SharedMemory mem("ssf4ae-overlay-communication-pipe", 16);
 }
 
@@ -31,18 +32,23 @@ void bits_set(std::vector<int>& vec, unsigned state) {
   }
 }
 
-void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr) {
+void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide) {
   float left_offset = 0.1;
-  float top_offset = 0.1 * aspect_ratio;
-  float xsize = 0.05;
+  float top_offset = 0.285 * aspect_ratio;
+  float xsize = 0.0416;
   float ysize = xsize * aspect_ratio;
+
+  if(!leftSide) {
+    left_offset = 2 - left_offset - xsize;
+    xpos = -xpos;
+  }
 
   ptr[0].x = -1 + left_offset + xpos * xsize;
   ptr[1].x = ptr[0].x;
   ptr[2].x = ptr[0].x + xsize;
   ptr[3].x = ptr[2].x;
 
-  ptr[0].y = -1 + top_offset + ypos * ysize;
+  ptr[0].y = 1 - top_offset - (ypos + 1) * ysize;
   ptr[2].y = ptr[0].y;
   ptr[1].y = ptr[0].y + ysize;
   ptr[3].y = ptr[1].y;
@@ -58,21 +64,16 @@ void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr) {
   ptr[3].tv = ptr[1].tv;
 }
 
-void DrawIcon(IDirect3DDevice9* dev, int x, int y, int xpos, int ypos) {
+void DrawIcon(IDirect3DDevice9* dev, int x, int y, int xpos, int ypos, bool leftSide) {
   void* pVertices = 0;
   HRESULT status = vertexBuffer->Lock(0, 4 * sizeof(Vertex), (void**)&pVertices, D3DLOCK_DISCARD);
   if(status != S_OK) return;
-  SetupIcon(x, y, xpos, ypos, (Vertex*)pVertices);
+  SetupIcon(x, y, xpos, ypos, (Vertex*)pVertices, leftSide);
   vertexBuffer->Unlock();
   dev->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
 }
 
 void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
-  dev->BeginScene();
-  dev->SetTexture(0, texture);
-  dev->SetStreamSource(0, vertexBuffer, 0, sizeof(Vertex));
-	dev->SetFVF(D3DFVF_CUSTOMVERTEX);
-
   std::vector<int> bset;
   bits_set(bset, state);
 
@@ -86,15 +87,13 @@ void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
     if(arrows & 0x4) col = 2;
     if(arrows & 0x8) col = 0;
 
-    DrawIcon(dev, row, col, 0, ypos);
+    DrawIcon(dev, row, col, 0, ypos, leftSide);
     dir = 1;
   }
 
   for(int i = 0; i<bset.size(); ++i) {
-    DrawIcon(dev, bset[i] % 3, bset[i] / 3 + 3, i + dir, ypos);
+    DrawIcon(dev, bset[i] % 3, bset[i] / 3 + 3, i + dir, ypos, leftSide);
   }
-
-  dev->EndScene();
 }
 
 void SetupRenderstates(IDirect3DDevice9* dev) {
@@ -141,18 +140,29 @@ void HandleDeviceChange(IDirect3DDevice9* dev)
   }
 }
 
+unsigned ComputeButtons(unsigned inputButtons, unsigned lastButtons)
+{
+  unsigned buttons = inputButtons;
+  buttons |= (inputButtons & 0x01) ? lastButtons : 0;  // LP
+  buttons |= (inputButtons & 0x02) ? lastButtons & ~0x0B : 0;  // MP
+  buttons |= (inputButtons & 0x04) ? lastButtons & ~0x1F : 0;  // HP
+  buttons |= (inputButtons & 0x08) ? lastButtons & ~0x09 : 0;  // LK
+  buttons |= (inputButtons & 0x10) ? lastButtons & ~0x1B : 0;  // MK
+  // HK cant plink
+
+  return buttons;
+}
+
 void ProcessInput(std::deque<unsigned>& ih)
 {
-  // Clear everything on F12.
-  if(GetAsyncKeyState(VK_F12))
-    ih = std::deque<unsigned>(ih.size());
-
   unsigned curr_input = *mem.ptr<unsigned>();
+  // Only positive edge of buttons is interesting
+  unsigned edge = (curr_input ^ last_input) & curr_input & 0x3F;
+  unsigned adjusted_input = curr_input & ~0x3F | edge;
 
-  // Show only new button presses.
-  unsigned buttons = (last_input ^ curr_input) & curr_input & 0x3F;
+  unsigned buttons = ComputeButtons(adjusted_input & 0x3F, last_input & 0x3F);
   // Show direction only when it changes, or user presses new button.
-  unsigned stick = ((last_input >> 6) ^ (curr_input >> 6) | buttons) ? (curr_input & ~0x3Fu) : 0;
+  unsigned stick = ((last_input >> 6) ^ (adjusted_input >> 6) | buttons) ? (adjusted_input & ~0x3Fu) : 0;
 
   unsigned computed_input = buttons | stick;
 
@@ -166,12 +176,29 @@ void ProcessInput(std::deque<unsigned>& ih)
 
 void ProcessOverlay(IDirect3DDevice9* dev)
 {
+  if(GetAsyncKeyState(VK_F12)) {
+    input_history = std::deque<unsigned>(input_history.size());
+    enabled = true;
+  }
+  if(GetAsyncKeyState(VK_F11))
+    enabled = false;
+  if(GetAsyncKeyState(VK_F10))
+    left_side = false;
+  if(GetAsyncKeyState(VK_F9))
+    left_side = true;
+
+  if(!enabled) return;
+
   HandleDeviceChange(dev);
+  ProcessInput(input_history);
 
   SetupRenderstates(dev);
 
-  ProcessInput(input_history);
-
+  dev->BeginScene();
+  dev->SetTexture(0, texture);
+  dev->SetStreamSource(0, vertexBuffer, 0, sizeof(Vertex));
+	dev->SetFVF(D3DFVF_CUSTOMVERTEX);
   for(int i=0; i<input_history.size(); ++i)
-    DrawIcons(dev, true, i, input_history[i]);
+    DrawIcons(dev, left_side, i, input_history[i]);
+  dev->EndScene();
 }
