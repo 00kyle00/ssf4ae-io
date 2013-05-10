@@ -9,7 +9,6 @@ namespace {
   IDirect3DTexture9* texture;
   IDirect3DDevice9* olddev;
   std::deque<unsigned> input_history(15);
-  D3DVIEWPORT9 viewport;
   float aspect_ratio;
   unsigned last_input;
 
@@ -25,19 +24,6 @@ struct Vertex {
   float tu, tv;
 };
 
-struct IconPos {
-  int x, y;
-};
-
-Vertex vertices_org[] = {
-  {-1,    -1, 0, 0,     1.0/5},
-  {-1,     1, 0, 0,     0},
-  {-0.75, -1, 0, 1.0/3, 1.0/5},
-  {-0.75,  1, 0, 1.0/3, 0},
-};
-
-
-
 void bits_set(std::vector<int>& vec, unsigned state) {
   for(int i=0; i<6; ++i) {
     if(state & 1) vec.push_back(i);
@@ -45,36 +31,43 @@ void bits_set(std::vector<int>& vec, unsigned state) {
   }
 }
 
-void SetupIcon(int x, int y, int xpos, Vertex* ptr) {
-  for(int i=0; i<4; ++i) {
-    ptr[i].x += 0.25 * xpos;
-    ptr[i].tu += x * (1.0 / 3);
-    ptr[i].tv += y * (1.0 / 5);
-  }
+void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr) {
+  float left_offset = 0.1;
+  float top_offset = 0.1 * aspect_ratio;
+  float xsize = 0.05;
+  float ysize = xsize * aspect_ratio;
+
+  ptr[0].x = -1 + left_offset + xpos * xsize;
+  ptr[1].x = ptr[0].x;
+  ptr[2].x = ptr[0].x + xsize;
+  ptr[3].x = ptr[2].x;
+
+  ptr[0].y = -1 + top_offset + ypos * ysize;
+  ptr[2].y = ptr[0].y;
+  ptr[1].y = ptr[0].y + ysize;
+  ptr[3].y = ptr[1].y;
+
+  ptr[0].tu = x * (1.0 / 3);
+  ptr[1].tu = ptr[0].tu;
+  ptr[2].tu = (x + 1) * (1.0 / 3);
+  ptr[3].tu = ptr[2].tu;
+
+  ptr[0].tv = (y + 1) * (1.0 / 5);
+  ptr[2].tv = ptr[0].tv;
+  ptr[1].tv = y * (1.0 / 5);
+  ptr[3].tv = ptr[1].tv;
 }
 
-void DrawIcon(IDirect3DDevice9* dev, int x, int y, int pos) {
+void DrawIcon(IDirect3DDevice9* dev, int x, int y, int xpos, int ypos) {
   void* pVertices = 0;
-  HRESULT status = vertexBuffer->Lock(0, sizeof(vertices_org), (void**)&pVertices, D3DLOCK_DISCARD);
+  HRESULT status = vertexBuffer->Lock(0, 4 * sizeof(Vertex), (void**)&pVertices, D3DLOCK_DISCARD);
   if(status != S_OK) return;
-  memcpy(pVertices, vertices_org, sizeof(vertices_org));
-  SetupIcon(x, y, pos, (Vertex*)pVertices);
+  SetupIcon(x, y, xpos, ypos, (Vertex*)pVertices);
   vertexBuffer->Unlock();
   dev->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
 }
 
 void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
-  const int side = 20;
-
-  D3DVIEWPORT9 viewport2;
-  viewport2.X = 200;
-  viewport2.Y = 200 + (side + 2) * ypos;
-  viewport2.Width = side * 8;
-  viewport2.Height = side;
-  viewport2.MinZ = 0;
-  viewport2.MaxZ = 1;
-  dev->SetViewport(&viewport2);
-
   dev->BeginScene();
   dev->SetTexture(0, texture);
   dev->SetStreamSource(0, vertexBuffer, 0, sizeof(Vertex));
@@ -93,12 +86,12 @@ void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
     if(arrows & 0x4) col = 2;
     if(arrows & 0x8) col = 0;
 
-    DrawIcon(dev, row, col, 0);
+    DrawIcon(dev, row, col, 0, ypos);
     dir = 1;
   }
 
   for(int i = 0; i<bset.size(); ++i) {
-    DrawIcon(dev, bset[i] % 3, bset[i] / 3 + 3, i + dir);
+    DrawIcon(dev, bset[i] % 3, bset[i] / 3 + 3, i + dir, ypos);
   }
 
   dev->EndScene();
@@ -108,6 +101,10 @@ void SetupRenderstates(IDirect3DDevice9* dev) {
   dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
   dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
   dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA) ;
+
+  dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+  dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+  dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
 
   dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
   dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
@@ -128,7 +125,7 @@ void HandleDeviceChange(IDirect3DDevice9* dev)
 {
   if(dev != olddev) {
     dev->CreateVertexBuffer(
-      sizeof(vertices_org), D3DUSAGE_WRITEONLY, D3DFVF_CUSTOMVERTEX,
+      4 * sizeof(Vertex), D3DUSAGE_WRITEONLY, D3DFVF_CUSTOMVERTEX,
       D3DPOOL_MANAGED, &vertexBuffer, NULL );
   
     static HMODULE d3dx9 = LoadLibrary("d3dx9_24.dll");
@@ -136,6 +133,7 @@ void HandleDeviceChange(IDirect3DDevice9* dev)
       GetProcAddress(d3dx9, "D3DXCreateTextureFromFileA");
     ctff(dev, "icons.dds", &texture);
 
+    D3DVIEWPORT9 viewport;
     dev->GetViewport(&viewport);
     aspect_ratio = viewport.Width;
     aspect_ratio /= viewport.Height;
