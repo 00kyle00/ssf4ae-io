@@ -1,0 +1,21 @@
+Build, then put d3d9.dll, xinput1_3.dll and icons.dds in directory containing SSFIV.exe
+icons.dds can be anything consumed by D3DXCreateTextureFromFile. Default file is actually a png.
+
+Texture should be an image with containing square icons in following layout:
+
+UL UP UR  - up directions
+L      R  - horizontal directions
+DL DW DR  - down directions
+LP MP HP  - punches
+LK MK HK  - kicks
+
+Original art can be viewed using extenal tools for DX api logging. 3DRipperDX works well (icons are then in texture named: afaca096.dds)
+
+Overlay can be controlled ingame with following keys:
+	F9	-	keep overlay on left
+	F10	-	keep overlay on right
+	F11	-	do not draw overlay
+	F12	-	draw overlay/reset history
+
+Config file for input is read only once on start of the process. 'Reasonable' defaults will be used if its not found.
+

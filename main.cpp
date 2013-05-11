@@ -1,32 +1,57 @@
 #include <Windows.h>
 #include <Xinput.h>
 #include "SharedMemory.h"
+#include <fstream>
 
 namespace
 {
   HMODULE xinput;
   SharedMemory mem("ssf4ae-overlay-communication-pipe", 16);
 
+  unsigned buttonsmap[] = {
+    0x001, 0x002, 0x004, 0x007,
+    0x008, 0x010, 0x020, 0x038
+  };
+  int triggerDead = 50;
+  int thumbDead = 14300;
+
+  void ReadConfig() {
+    static bool read = false;
+    if(read) return;
+    read = true;
+
+    std::ifstream cfg("input.cfg");
+    if(cfg.is_open()) {
+      for(int i=0; i<8; ++i)
+        cfg >> buttonsmap[i];
+      cfg >> triggerDead;
+      cfg >> thumbDead;
+    }
+  }
+
   unsigned SimplifyInput(XINPUT_STATE* input) {
-    const int triggerDead = 50;
-    const int thumbDead = 14300;
+    ReadConfig();
 
     unsigned code = 0;
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_X)              ? buttonsmap[0] : 0; //LP
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_Y)              ? buttonsmap[1] : 0; //MP
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER) ? buttonsmap[2] : 0; //HP
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)  ? buttonsmap[3] : 0; //PPP
 
-    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_X)              ? 0x01 : 0; //LP
-    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_Y)              ? 0x02 : 0; //MP
-    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER) ? 0x04 : 0; //HP
-    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)  ? 0x07 : 0; //PPP
-
-    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_A)              ? 0x08 : 0; //LK
-    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_B)              ? 0x10 : 0; //MK
-    code |= (input->Gamepad.bRightTrigger > triggerDead)              ? 0x20 : 0; //HK
-    code |= (input->Gamepad.bLeftTrigger > triggerDead)               ? 0x38 : 0; //KKK
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_A)              ? buttonsmap[4] : 0; //LK
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_B)              ? buttonsmap[5] : 0; //MK
+    code |= (input->Gamepad.bRightTrigger > triggerDead)              ? buttonsmap[6] : 0; //HK
+    code |= (input->Gamepad.bLeftTrigger > triggerDead)               ? buttonsmap[7] : 0; //KKK
 
     code |= (input->Gamepad.sThumbLX > thumbDead)                     ? 0x040 : 0; // >
     code |= (input->Gamepad.sThumbLX < -thumbDead)                    ? 0x080 : 0; // <
     code |= (input->Gamepad.sThumbLY < -thumbDead)                    ? 0x100 : 0; // ^
     code |= (input->Gamepad.sThumbLY > thumbDead)                     ? 0x200 : 0; // \/
+
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT)     ? 0x040 : 0;
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT)      ? 0x080 : 0;
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP)        ? 0x100 : 0;
+    code |= (input->Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN)      ? 0x200 : 0;
 
     return code;
   }
