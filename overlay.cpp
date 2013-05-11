@@ -5,14 +5,14 @@
 #include <deque>
 
 namespace {
-  IDirect3DVertexBuffer9* vertexBuffer;
-  IDirect3DTexture9* texture;
-  IDirect3DDevice9* olddev;
-  std::deque<unsigned> input_history(15);
-  float aspect_ratio;
-  unsigned last_input;
-  bool enabled = true;
-  bool left_side = true;
+  IDirect3DVertexBuffer9* g_vertexBuffer;
+  IDirect3DTexture9* g_texture;
+  IDirect3DDevice9* g_olddev;
+  std::deque<unsigned> g_inputHistory(15);
+  float g_aspectRatio;
+  unsigned g_lastInput;
+  bool g_enabled = true;
+  bool g_leftSide = true;
   SharedMemory mem("ssf4ae-overlay-communication-pipe", 16);
 }
 
@@ -25,7 +25,7 @@ struct Vertex {
   float tu, tv;
 };
 
-void bits_set(std::vector<int>& vec, unsigned state) {
+void BitsSet(std::vector<int>& vec, unsigned state) {
   for(int i=0; i<6; ++i) {
     if(state & 1) vec.push_back(i);
     state >>= 1;
@@ -33,22 +33,22 @@ void bits_set(std::vector<int>& vec, unsigned state) {
 }
 
 void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide) {
-  float left_offset = 0.1;
-  float top_offset = 0.285 * aspect_ratio;
+  float leftOffset = 0.1;
+  float topOffset = 0.285 * g_aspectRatio;
   float xsize = 0.0416;
-  float ysize = xsize * aspect_ratio;
+  float ysize = xsize * g_aspectRatio;
 
   if(!leftSide) {
-    left_offset = 2 - left_offset - xsize;
+    leftOffset = 2 - leftOffset - xsize;
     xpos = -xpos;
   }
 
-  ptr[0].x = -1 + left_offset + xpos * xsize;
+  ptr[0].x = -1 + leftOffset + xpos * xsize;
   ptr[1].x = ptr[0].x;
   ptr[2].x = ptr[0].x + xsize;
   ptr[3].x = ptr[2].x;
 
-  ptr[0].y = 1 - top_offset - (ypos + 1) * ysize;
+  ptr[0].y = 1 - topOffset - (ypos + 1) * ysize;
   ptr[2].y = ptr[0].y;
   ptr[1].y = ptr[0].y + ysize;
   ptr[3].y = ptr[1].y;
@@ -65,17 +65,17 @@ void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide) {
 }
 
 void DrawIcon(IDirect3DDevice9* dev, int x, int y, int xpos, int ypos, bool leftSide) {
-  void* pVertices = 0;
-  HRESULT status = vertexBuffer->Lock(0, 4 * sizeof(Vertex), (void**)&pVertices, D3DLOCK_DISCARD);
+  void* vertices = 0;
+  HRESULT status = g_vertexBuffer->Lock(0, 4 * sizeof(Vertex), (void**)&vertices, D3DLOCK_DISCARD);
   if(status != S_OK) return;
-  SetupIcon(x, y, xpos, ypos, (Vertex*)pVertices, leftSide);
-  vertexBuffer->Unlock();
+  SetupIcon(x, y, xpos, ypos, (Vertex*)vertices, leftSide);
+  g_vertexBuffer->Unlock();
   dev->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
 }
 
 void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
   std::vector<int> bset;
-  bits_set(bset, state);
+  BitsSet(bset, state);
 
   int dir = 0;
   unsigned arrows = state >> 6;
@@ -122,21 +122,21 @@ void SetupRenderstates(IDirect3DDevice9* dev) {
 
 void HandleDeviceChange(IDirect3DDevice9* dev)
 {
-  if(dev != olddev) {
+  if(dev != g_olddev) {
     dev->CreateVertexBuffer(
       4 * sizeof(Vertex), D3DUSAGE_WRITEONLY, D3DFVF_CUSTOMVERTEX,
-      D3DPOOL_MANAGED, &vertexBuffer, NULL );
+      D3DPOOL_MANAGED, &g_vertexBuffer, NULL );
   
     static HMODULE d3dx9 = LoadLibrary("d3dx9_24.dll");
     static auto ctff = (void (__stdcall *)(IDirect3DDevice9*, const char*, IDirect3DTexture9**))
       GetProcAddress(d3dx9, "D3DXCreateTextureFromFileA");
-    ctff(dev, "icons.dds", &texture);
+    ctff(dev, "icons.dds", &g_texture);
 
     D3DVIEWPORT9 viewport;
     dev->GetViewport(&viewport);
-    aspect_ratio = viewport.Width;
-    aspect_ratio /= viewport.Height;
-    olddev = dev;
+    g_aspectRatio = viewport.Width;
+    g_aspectRatio /= viewport.Height;
+    g_olddev = dev;
   }
 }
 
@@ -155,50 +155,50 @@ unsigned ComputeButtons(unsigned inputButtons, unsigned lastButtons)
 
 void ProcessInput(std::deque<unsigned>& ih)
 {
-  unsigned curr_input = *mem.ptr<unsigned>();
+  unsigned currInput = *mem.ptr<unsigned>();
   // Only positive edge of buttons is interesting
-  unsigned edge = (curr_input ^ last_input) & curr_input & 0x3F;
-  unsigned adjusted_input = curr_input & ~0x3F | edge;
+  unsigned edge = (currInput ^ g_lastInput) & currInput & 0x3F;
+  unsigned adjustedInput = currInput & ~0x3F | edge;
 
-  unsigned buttons = ComputeButtons(adjusted_input & 0x3F, last_input & 0x3F);
+  unsigned buttons = ComputeButtons(adjustedInput & 0x3F, g_lastInput & 0x3F);
   // Show direction only when it changes, or user presses new button.
-  unsigned stick = ((last_input >> 6) ^ (adjusted_input >> 6) | buttons) ? (adjusted_input & ~0x3Fu) : 0;
+  unsigned stick = ((g_lastInput >> 6) ^ (adjustedInput >> 6) | buttons) ? (adjustedInput & ~0x3Fu) : 0;
 
-  unsigned computed_input = buttons | stick;
+  unsigned computedInput = buttons | stick;
 
-  if(computed_input != 0) {
-    ih.push_front(computed_input);
+  if(computedInput != 0) {
+    ih.push_front(computedInput);
     ih.pop_back();
   }
 
-  last_input = curr_input;
+  g_lastInput = currInput;
 }
 
 void ProcessOverlay(IDirect3DDevice9* dev)
 {
   if(GetAsyncKeyState(VK_F12)) {
-    input_history = std::deque<unsigned>(input_history.size());
-    enabled = true;
+    g_inputHistory = std::deque<unsigned>(g_inputHistory.size());
+    g_enabled = true;
   }
   if(GetAsyncKeyState(VK_F11))
-    enabled = false;
+    g_enabled = false;
   if(GetAsyncKeyState(VK_F10))
-    left_side = false;
+    g_leftSide = false;
   if(GetAsyncKeyState(VK_F9))
-    left_side = true;
+    g_leftSide = true;
 
-  if(!enabled) return;
+  if(!g_enabled) return;
 
   HandleDeviceChange(dev);
-  ProcessInput(input_history);
+  ProcessInput(g_inputHistory);
 
   SetupRenderstates(dev);
 
   dev->BeginScene();
-  dev->SetTexture(0, texture);
-  dev->SetStreamSource(0, vertexBuffer, 0, sizeof(Vertex));
+  dev->SetTexture(0, g_texture);
+  dev->SetStreamSource(0, g_vertexBuffer, 0, sizeof(Vertex));
 	dev->SetFVF(D3DFVF_CUSTOMVERTEX);
-  for(int i=0; i<input_history.size(); ++i)
-    DrawIcons(dev, left_side, i, input_history[i]);
+  for(int i=0; i<g_inputHistory.size(); ++i)
+    DrawIcons(dev, g_leftSide, i, g_inputHistory[i]);
   dev->EndScene();
 }
