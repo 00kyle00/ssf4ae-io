@@ -3,6 +3,7 @@
 #include <vector>
 #include <map>
 #include <deque>
+#include <fstream>
 
 namespace {
   IDirect3DVertexBuffer9* g_vertexBuffer;
@@ -14,6 +15,21 @@ namespace {
   bool g_enabled = true;
   bool g_leftSide = true;
   SharedMemory mem("ssf4ae-overlay-communication-pipe", 16);
+  bool g_stateMode = false;
+}
+
+void ReadConfig() {
+  static bool read = false;
+  if(read) return;
+  read = true;
+
+  std::ifstream cfg("input.cfg");
+  if(cfg.is_open()) {
+    int data;
+    for(int i=0; i<11; ++i)
+      cfg >> data;
+    g_stateMode = (bool)data;
+  }
 }
 
 void SetupRenderstates(IDirect3DDevice9* dev);
@@ -37,6 +53,11 @@ void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide) {
   float topOffset = 0.285 * g_aspectRatio;
   float xsize = 0.0416;
   float ysize = xsize * g_aspectRatio;
+
+  if(g_stateMode) {
+    leftOffset = 0.61;
+    topOffset = 0.30;
+  }
 
   if(!leftSide) {
     leftOffset = 2 - leftOffset - xsize;
@@ -91,8 +112,14 @@ void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
     dir = 1;
   }
 
-  for(int i = 0; i<bset.size(); ++i) {
-    DrawIcon(dev, bset[i] % 3, bset[i] / 3 + 3, i + dir, ypos, leftSide);
+  if(g_stateMode) {
+    for(int i = 0; i<6; ++i)
+      if(state & (0x1 << i))
+        DrawIcon(dev, i % 3, i / 3 + 3, i + 1, ypos, leftSide);
+  }
+  else {
+    for(int i = 0; i<bset.size(); ++i)
+      DrawIcon(dev, bset[i] % 3, bset[i] / 3 + 3, i + dir, ypos, leftSide);
   }
 }
 
@@ -156,6 +183,12 @@ unsigned ComputeButtons(unsigned inputButtons, unsigned lastButtons)
 void ProcessInput(std::deque<unsigned>& ih)
 {
   unsigned currInput = *mem.ptr<unsigned>();
+  if(g_stateMode) {
+    ih.resize(1);
+    ih[0] = currInput;
+    return;
+  }
+
   // Only positive edge of buttons is interesting
   unsigned edge = (currInput ^ g_lastInput) & currInput & 0x3F;
   unsigned adjustedInput = currInput & ~0x3F | edge;
@@ -176,6 +209,7 @@ void ProcessInput(std::deque<unsigned>& ih)
 
 void ProcessOverlay(IDirect3DDevice9* dev)
 {
+  ReadConfig();
   if(GetAsyncKeyState(VK_F12)) {
     g_inputHistory = std::deque<unsigned>(g_inputHistory.size());
     g_enabled = true;
