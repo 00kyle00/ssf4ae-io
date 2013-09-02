@@ -131,7 +131,8 @@ DWORD WINAPI XInputOrd100(DWORD dwUserIndex, XINPUT_STATE *pState)
   static DWORD (WINAPI *orig)(DWORD dwUserIndex, XINPUT_STATE *pState);
   DWORD ret = set_call(orig, 100)(dwUserIndex, pState);
   if(ret == ERROR_SUCCESS && dwUserIndex < 4) {
-    mem.ptr<unsigned>()[dwUserIndex] = SimplifyInput(pState);
+    mem.ptr<unsigned>()[2*dwUserIndex] = SimplifyInput(pState);
+    mem.ptr<unsigned>()[2*dwUserIndex+1] = timeGetTime();
   }
   return ret;
 }

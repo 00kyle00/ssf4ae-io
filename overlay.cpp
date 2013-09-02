@@ -8,14 +8,17 @@
 namespace {
   IDirect3DVertexBuffer9* g_vertexBuffer;
   IDirect3DTexture9* g_texture;
+  IDirect3DTexture9* g_texture_digits;
   IDirect3DDevice9* g_olddev;
   std::deque<unsigned> g_inputHistory(15);
+  std::deque<unsigned> g_inputSequence(15);
   float g_aspectRatio;
   unsigned g_lastInput;
   bool g_enabled = true;
   bool g_leftSide = true;
   SharedMemory mem("ssf4ae-overlay-communication-pipe", 16);
   bool g_stateMode = false;
+  float g_frameDivisor = 1.0f;
 }
 
 void ReadConfig() {
@@ -29,6 +32,7 @@ void ReadConfig() {
     for(int i=0; i<11; ++i)
       cfg >> data;
     g_stateMode = (bool)data;
+    cfg >> g_frameDivisor;
   }
 }
 
@@ -48,7 +52,7 @@ void BitsSet(std::vector<int>& vec, unsigned state) {
   }
 }
 
-void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide) {
+void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide, int totalx, int totaly) {
   float leftOffset = 0.1;
   float topOffset = 0.285 * g_aspectRatio;
   float xsize = 0.0416;
@@ -74,24 +78,47 @@ void SetupIcon(int x, int y, int xpos, int ypos, Vertex* ptr, bool leftSide) {
   ptr[1].y = ptr[0].y + ysize;
   ptr[3].y = ptr[1].y;
 
-  ptr[0].tu = x * (1.0 / 3);
+  ptr[0].tu = x * (1.0 / totalx);
   ptr[1].tu = ptr[0].tu;
-  ptr[2].tu = (x + 1) * (1.0 / 3);
+  ptr[2].tu = (x + 1) * (1.0 / totalx);
   ptr[3].tu = ptr[2].tu;
 
-  ptr[0].tv = (y + 1) * (1.0 / 5);
+  ptr[0].tv = (y + 1) * (1.0 / totaly);
   ptr[2].tv = ptr[0].tv;
-  ptr[1].tv = y * (1.0 / 5);
+  ptr[1].tv = y * (1.0 / totaly);
   ptr[3].tv = ptr[1].tv;
 }
 
-void DrawIcon(IDirect3DDevice9* dev, int x, int y, int xpos, int ypos, bool leftSide) {
+void DrawIcon(IDirect3DDevice9* dev, int x, int y, int xpos, int ypos, bool leftSide, int totalx=3, int totaly=5) {
   void* vertices = 0;
   HRESULT status = g_vertexBuffer->Lock(0, 4 * sizeof(Vertex), (void**)&vertices, D3DLOCK_DISCARD);
   if(status != S_OK) return;
-  SetupIcon(x, y, xpos, ypos, (Vertex*)vertices, leftSide);
+  SetupIcon(x, y, xpos, ypos, (Vertex*)vertices, leftSide, totalx, totaly);
   g_vertexBuffer->Unlock();
   dev->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
+}
+
+void DrawSequence(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state, unsigned seq) {
+  int pad = 0;
+  if(state >> 6)
+    pad++;
+  pad += __popcnt(0x3F & state);
+
+  seq = floor(seq / g_frameDivisor + 0.5);
+
+  std::deque<int> digits;
+  while(seq != 0) {
+    int tens = seq % 10;
+    int rest = seq / 10;
+    if(leftSide)
+      digits.push_front(tens);
+    else
+      digits.push_back(tens);
+      
+    seq = rest;
+  }
+  for(int i=0; i<digits.size(); ++i)
+    DrawIcon(dev, digits[i], 0, pad + i, ypos, leftSide, 14, 1);
 }
 
 void DrawIcons(IDirect3DDevice9* dev, bool leftSide, int ypos, unsigned state) {
@@ -158,7 +185,7 @@ void HandleDeviceChange(IDirect3DDevice9* dev)
     static auto ctff = (void (__stdcall *)(IDirect3DDevice9*, const char*, IDirect3DTexture9**))
       GetProcAddress(d3dx9, "D3DXCreateTextureFromFileA");
     ctff(dev, "icons.dds", &g_texture);
-
+    ctff(dev, "digits.dds", &g_texture_digits);
     D3DVIEWPORT9 viewport;
     dev->GetViewport(&viewport);
     g_aspectRatio = viewport.Width;
@@ -180,12 +207,16 @@ unsigned ComputeButtons(unsigned inputButtons, unsigned lastButtons)
   return buttons;
 }
 
-void ProcessInput(std::deque<unsigned>& ih)
+void ProcessInput(std::deque<unsigned>& ih, std::deque<unsigned>& is)
 {
-  unsigned currInput = *mem.ptr<unsigned>();
+  static unsigned lastButtonsSequence;
+
+  unsigned currInput = mem.ptr<unsigned>()[0];
+  unsigned sequenceNo = mem.ptr<unsigned>()[1];
   if(g_stateMode) {
     ih.resize(1);
     ih[0] = currInput;
+    is[0] = 0;
     return;
   }
 
@@ -202,9 +233,35 @@ void ProcessInput(std::deque<unsigned>& ih)
   if(computedInput != 0) {
     ih.push_front(computedInput);
     ih.pop_back();
+    if(buttons != 0) {
+      is.push_front(sequenceNo - lastButtonsSequence);
+      is.pop_back();
+
+      lastButtonsSequence = sequenceNo;
+    }
+    else {
+      is.push_front(0);
+      is.pop_back();
+    }
   }
 
   g_lastInput = currInput;
+}
+
+void RenderHistory(IDirect3DDevice9* dev, const std::deque<unsigned>& hist, const std::deque<unsigned>& seq)
+{
+  dev->BeginScene();
+  dev->SetTexture(0, g_texture);
+  dev->SetStreamSource(0, g_vertexBuffer, 0, sizeof(Vertex));
+	dev->SetFVF(D3DFVF_CUSTOMVERTEX);
+  for(int i=0; i<hist.size(); ++i)
+    DrawIcons(dev, g_leftSide, i, hist[i]);
+
+  dev->SetTexture(0, g_texture_digits);
+  for(int i=0; i<seq.size(); ++i)
+    if(seq[i] < 1000 && seq[i] > 0)
+      DrawSequence(dev, g_leftSide, i, hist[i], seq[i]);
+  dev->EndScene();
 }
 
 void ProcessOverlay(IDirect3DDevice9* dev)
@@ -212,6 +269,7 @@ void ProcessOverlay(IDirect3DDevice9* dev)
   ReadConfig();
   if(GetAsyncKeyState(VK_F12)) {
     g_inputHistory = std::deque<unsigned>(g_inputHistory.size());
+    g_inputSequence = std::deque<unsigned>(g_inputSequence.size());
     g_enabled = true;
   }
   if(GetAsyncKeyState(VK_F11))
@@ -224,15 +282,8 @@ void ProcessOverlay(IDirect3DDevice9* dev)
   if(!g_enabled) return;
 
   HandleDeviceChange(dev);
-  ProcessInput(g_inputHistory);
+  ProcessInput(g_inputHistory, g_inputSequence);
 
   SetupRenderstates(dev);
-
-  dev->BeginScene();
-  dev->SetTexture(0, g_texture);
-  dev->SetStreamSource(0, g_vertexBuffer, 0, sizeof(Vertex));
-	dev->SetFVF(D3DFVF_CUSTOMVERTEX);
-  for(int i=0; i<g_inputHistory.size(); ++i)
-    DrawIcons(dev, g_leftSide, i, g_inputHistory[i]);
-  dev->EndScene();
+  RenderHistory(dev, g_inputHistory, g_inputSequence);
 }
