@@ -211,8 +211,8 @@ void ProcessInput(std::deque<unsigned>& ih, std::deque<unsigned>& is)
 {
   static unsigned lastButtonsSequence;
 
-  unsigned currInput = mem.ptr<unsigned>()[0];
-  unsigned sequenceNo = mem.ptr<unsigned>()[1];
+  unsigned currInput = mem.ptr<unsigned>()[1];
+  unsigned sequenceNo = mem.ptr<unsigned>()[0];
   if(g_stateMode) {
     ih.resize(1);
     ih[0] = currInput;

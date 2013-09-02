@@ -126,13 +126,24 @@ DWORD WINAPI XInputSetState(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration)
   return set_call(orig, __FUNCTION__)(dwUserIndex, pVibration);
 }
 
+unsigned getMilisecs() {
+  static LARGE_INTEGER freq;
+  if(freq.QuadPart == 0)
+    QueryPerformanceFrequency(&freq);
+
+  LARGE_INTEGER time;
+  QueryPerformanceCounter(&time);
+  return time.QuadPart * 1000 / freq.QuadPart;
+}
+
 DWORD WINAPI XInputOrd100(DWORD dwUserIndex, XINPUT_STATE *pState)
 {
   static DWORD (WINAPI *orig)(DWORD dwUserIndex, XINPUT_STATE *pState);
   DWORD ret = set_call(orig, 100)(dwUserIndex, pState);
+
+  mem.ptr<unsigned>()[0] = getMilisecs();
   if(ret == ERROR_SUCCESS && dwUserIndex < 4) {
-    mem.ptr<unsigned>()[2*dwUserIndex] = SimplifyInput(pState);
-    mem.ptr<unsigned>()[2*dwUserIndex+1] = timeGetTime();
+    mem.ptr<unsigned>()[dwUserIndex+1] = SimplifyInput(pState);
   }
   return ret;
 }
